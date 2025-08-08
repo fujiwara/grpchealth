@@ -492,3 +492,75 @@ func BenchmarkIntegrationHealthCheck(b *testing.B) {
 		}
 	})
 }
+
+// Benchmark integration test for Unix Domain Socket
+func BenchmarkIntegrationUnixSocketHealthCheck(b *testing.B) {
+	// Setup logging for benchmark
+	cleanup := setupBenchmarkLogger()
+	defer cleanup()
+
+	// Create temporary socket path
+	tempDir := b.TempDir()
+	socketPath := filepath.Join(tempDir, "bench.sock")
+
+	serverOpts := CLIServer{
+		Address: "unix:" + socketPath,
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start server
+	go func() {
+		runServer(ctx, serverOpts)
+	}()
+
+	// Give server time to start
+	time.Sleep(200 * time.Millisecond)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := runBenchmarkUnixClient("unix:" + socketPath)
+			if err != nil {
+				b.Fatalf("Unix socket health check failed: %v", err)
+			}
+		}
+	})
+}
+
+// Benchmark integration test for Unix Domain Socket with absolute path
+func BenchmarkIntegrationUnixSocketAbsolutePathHealthCheck(b *testing.B) {
+	// Setup logging for benchmark
+	cleanup := setupBenchmarkLogger()
+	defer cleanup()
+
+	// Create temporary socket path
+	tempDir := b.TempDir()
+	socketPath := filepath.Join(tempDir, "bench-abs.sock")
+
+	serverOpts := CLIServer{
+		Address: socketPath, // Use absolute path directly
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start server
+	go func() {
+		runServer(ctx, serverOpts)
+	}()
+
+	// Give server time to start
+	time.Sleep(200 * time.Millisecond)
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			err := runBenchmarkUnixClient(socketPath) // Use absolute path directly
+			if err != nil {
+				b.Fatalf("Unix socket absolute path health check failed: %v", err)
+			}
+		}
+	})
+}
