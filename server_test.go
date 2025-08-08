@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -239,6 +240,68 @@ func createTempCertFiles(t *testing.T) (certFile, keyFile string, cleanup func()
 	}
 
 	return certTempFile.Name(), keyTempFile.Name(), cleanup
+}
+
+func TestRunServerUnixSocket(t *testing.T) {
+	// Create temporary socket path
+	tempDir := t.TempDir()
+	socketPath := filepath.Join(tempDir, "test.sock")
+	
+	opt := CLIServer{
+		Address: "unix:" + socketPath,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Start server in goroutine
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runServer(ctx, opt)
+	}()
+
+	// Give server time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Test Unix socket connection
+	conn, err := grpc.NewClient("unix:"+socketPath,
+		grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return net.Dial("unix", socketPath)
+		}),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+	if err != nil {
+		t.Fatalf("Failed to connect to Unix socket: %v", err)
+	}
+	defer conn.Close()
+
+	client := grpc_health_v1.NewHealthClient(conn)
+	resp, err := client.Check(context.Background(), &grpc_health_v1.HealthCheckRequest{})
+	if err != nil {
+		t.Fatalf("Health check failed: %v", err)
+	}
+
+	if resp.Status != grpc_health_v1.HealthCheckResponse_SERVING {
+		t.Errorf("Expected SERVING status, got %v", resp.Status)
+	}
+
+	// Cancel context to stop server
+	cancel()
+
+	// Wait for server to finish
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Errorf("runServer() error = %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("Server did not shut down gracefully")
+	}
+
+	// Verify socket file is cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file was not cleaned up")
+	}
 }
 
 func TestRunServerInvalidCertificate(t *testing.T) {

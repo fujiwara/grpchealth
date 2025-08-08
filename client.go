@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"google.golang.org/grpc"
@@ -15,7 +16,7 @@ import (
 )
 
 type CLIClient struct {
-	Address  string `help:"gRPC client address" arg:"" required:""`
+	Address  string `help:"gRPC client address (e.g., localhost:50051 or unix:///tmp/grpc.sock)" arg:"" required:""`
 	TLS      bool   `help:"Use TLS for connection" short:"t"`
 	Insecure bool   `help:"Use insecure connection" short:"k"`
 	Service  string `help:"Service name to check health status" default:"" short:"s"`
@@ -23,22 +24,36 @@ type CLIClient struct {
 
 func runClient(ctx context.Context, opt CLIClient) error {
 	dialOpts := []grpc.DialOption{}
-	if opt.TLS {
-		var creds credentials.TransportCredentials
-		if opt.Insecure {
-			creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
-			slog.Info("Using TLS with insecure mode (certificate verification disabled)")
-		} else {
-			creds = credentials.NewTLS(nil)
-			slog.Info("Using TLS with certificate verification")
-		}
-		dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
-	} else {
+	var target string
+	
+	// Check if address is Unix Domain Socket
+	if isUnixSocket(opt.Address) {
+		socketPath := parseUnixSocketPath(opt.Address)
+		target = "unix:" + socketPath
+		dialOpts = append(dialOpts, grpc.WithContextDialer(func(ctx context.Context, addr string) (net.Conn, error) {
+			return net.Dial("unix", socketPath)
+		}))
 		dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
-		slog.Info("Using plaintext connection")
+		slog.Info("Using Unix Domain Socket connection", "socket_path", socketPath)
+	} else {
+		target = opt.Address
+		if opt.TLS {
+			var creds credentials.TransportCredentials
+			if opt.Insecure {
+				creds = credentials.NewTLS(&tls.Config{InsecureSkipVerify: true})
+				slog.Info("Using TLS with insecure mode (certificate verification disabled)")
+			} else {
+				creds = credentials.NewTLS(nil)
+				slog.Info("Using TLS with certificate verification")
+			}
+			dialOpts = append(dialOpts, grpc.WithTransportCredentials(creds))
+		} else {
+			dialOpts = append(dialOpts, grpc.WithTransportCredentials(insecure.NewCredentials()))
+			slog.Info("Using plaintext connection")
+		}
 	}
 
-	conn, err := grpc.NewClient(opt.Address, dialOpts...)
+	conn, err := grpc.NewClient(target, dialOpts...)
 	if err != nil {
 		return fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}
@@ -89,3 +104,4 @@ func runClient(ctx context.Context, opt CLIClient) error {
 	}
 	return fmt.Errorf("service %s is not serving: %s", opt.Service, status)
 }
+

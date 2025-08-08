@@ -3,6 +3,8 @@ package grpchealth
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -380,6 +382,74 @@ func TestIntegrationErrorScenarios(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestIntegrationUnixSocket tests Unix Domain Socket integration
+func TestIntegrationUnixSocket(t *testing.T) {
+	// Create temporary socket path
+	tempDir := t.TempDir()
+	socketPath := filepath.Join(tempDir, "test.sock")
+
+	serverOpts := CLIServer{
+		Address: "unix:" + socketPath,
+	}
+
+	clientOpts := CLIClient{
+		Address: "unix:" + socketPath,
+		TLS:     false,
+		Service: "",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	var wg sync.WaitGroup
+	serverErrCh := make(chan error, 1)
+
+	// Start server
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := runServer(ctx, serverOpts)
+		if err != nil {
+			serverErrCh <- err
+		}
+	}()
+
+	// Give server time to start
+	time.Sleep(200 * time.Millisecond)
+
+	// Run client
+	clientErr := runClient(context.Background(), clientOpts)
+	if clientErr != nil {
+		t.Errorf("Unix socket client failed: %v", clientErr)
+	}
+
+	// Stop server
+	cancel()
+
+	// Wait for server to finish
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Server stopped gracefully
+	case err := <-serverErrCh:
+		if err != nil {
+			t.Errorf("Unix socket server error: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Error("Unix socket server did not shut down gracefully")
+	}
+
+	// Verify socket file is cleaned up
+	if _, err := os.Stat(socketPath); !os.IsNotExist(err) {
+		t.Error("Socket file was not cleaned up after server shutdown")
 	}
 }
 

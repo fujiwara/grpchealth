@@ -10,11 +10,13 @@ grpchealth provides both server and client implementations of the gRPC Health Ch
 
 - **Server Mode**: Run a standalone gRPC health check server
   - Support for TLS/SSL connections
+  - Unix Domain Socket support
   - Graceful shutdown on interrupt signals
   - Configurable server address
 
 - **Client Mode**: Check health status of gRPC services
   - Support for TLS connections with certificate verification
+  - Unix Domain Socket support
   - Insecure mode for testing (skip certificate verification)
   - Service-specific health checks
   - Connection timing information
@@ -156,6 +158,24 @@ grpchealth server :50051 --cert-file server.crt --key-file server.key
 3. Check health with TLS:
 ```bash
 grpchealth client localhost:50051 --tls --insecure
+```
+
+### Testing with Unix Domain Socket
+
+1. Start server with Unix Domain Socket:
+```bash
+grpchealth server unix:/tmp/grpc.sock
+```
+
+2. In another terminal, check its health:
+```bash
+grpchealth client unix:/tmp/grpc.sock
+```
+
+Alternatively, you can use absolute paths directly:
+```bash
+grpchealth server /tmp/grpc.sock
+grpchealth client /tmp/grpc.sock
 ```
 
 ## Development
