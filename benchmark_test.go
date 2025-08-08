@@ -41,3 +41,22 @@ func runBenchmarkClient(address string) error {
 
 	return runClient(context.Background(), opt)
 }
+
+// runBenchmarkUnixClient runs a Unix socket client health check without logging
+func runBenchmarkUnixClient(socketPath string) error {
+	opt := CLIClient{
+		Address: socketPath,
+		TLS:     false,
+		Service: "",
+	}
+
+	// Temporarily disable logging for client operations
+	originalLogger := slog.Default()
+	discardLogger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{
+		Level: slog.LevelError,
+	}))
+	slog.SetDefault(discardLogger)
+	defer slog.SetDefault(originalLogger)
+
+	return runClient(context.Background(), opt)
+}

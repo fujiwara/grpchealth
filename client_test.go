@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -306,6 +308,46 @@ func BenchmarkClientHealthCheck(b *testing.B) {
 			}
 		}
 	})
+}
+
+func TestRunClientUnixSocket(t *testing.T) {
+	// Create temporary socket path
+	tempDir := t.TempDir()
+	socketPath := filepath.Join(tempDir, "test.sock")
+
+	// Setup Unix socket server
+	lis, err := net.Listen("unix", socketPath)
+	if err != nil {
+		t.Fatalf("Failed to listen on unix socket: %v", err)
+	}
+	defer lis.Close()
+	defer os.RemoveAll(socketPath)
+
+	s := grpc.NewServer()
+	healthServer := health.NewServer()
+	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpc_health_v1.RegisterHealthServer(s, healthServer)
+
+	go func() {
+		if err := s.Serve(lis); err != nil {
+			t.Logf("Server stopped: %v", err)
+		}
+	}()
+	defer s.Stop()
+
+	// Test Unix socket client
+	opt := CLIClient{
+		Address: "unix:" + socketPath,
+		Service: "",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	err = runClient(ctx, opt)
+	if err != nil {
+		t.Errorf("Unix socket client failed: %v", err)
+	}
 }
 
 // Test helper functions
