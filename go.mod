@@ -7,7 +7,7 @@ toolchain go1.24.5
 require (
 	github.com/alecthomas/kong v1.12.1
 	github.com/fujiwara/sloghandler v0.0.5
-	golang.org/x/sys v0.34.0
+	golang.org/x/sys v0.35.0
 	google.golang.org/grpc v1.74.2
 )
 
